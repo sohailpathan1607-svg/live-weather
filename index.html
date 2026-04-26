@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyCast - Python Weather</title>
+    
+    <!-- PyScript & Tailwind -->
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css" />
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        .glass {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-blue-500 to-indigo-700 font-sans text-white p-4">
+
+    <div class="max-w-4xl mx-auto flex flex-col items-center gap-8 py-10">
+        <!-- Header -->
+        <div class="flex items-center gap-2 mb-4">
+            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"></path></svg>
+            <h1 class="text-3xl font-black uppercase tracking-tighter italic">SkyCast</h1>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative w-full max-w-md">
+            <input id="city-input" type="text" 
+                class="w-full px-4 py-3 pl-12 glass rounded-2xl text-white placeholder-white/70 focus:outline-none focus:ring-2 focus:ring-white/50 transition-all" 
+                placeholder="Enter city name (e.g. London)...">
+            <svg class="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+            <button id="search-btn" class="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-white/20 rounded-xl transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+            </button>
+        </div>
+
+        <!-- Weather Content -->
+        <div id="weather-display" class="w-full opacity-0 transition-opacity duration-500">
+            <!-- Current Weather Card -->
+            <div class="glass p-8 rounded-[2.5rem] shadow-2xl mb-8">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-8">
+                    <div class="text-center md:text-left">
+                        <h2 id="location-name" class="text-5xl font-bold mb-2">--</h2>
+                        <p id="current-date" class="text-lg text-white/70 mb-6">--</p>
+                        <div class="flex items-center justify-center md:justify-start gap-4">
+                            <div id="weather-icon" class="text-6xl text-white">☀️</div>
+                            <div id="temp" class="text-8xl font-black">--°</div>
+                        </div>
+                        <p id="description" class="text-2xl font-medium mt-4 text-white/90">--</p>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        <div class="glass p-4 rounded-3xl flex flex-col items-center min-w-[120px]">
+                            <span class="text-xs text-white/60 font-medium uppercase mb-1">Humidity</span>
+                            <span id="humidity" class="text-xl font-bold">--%</span>
+                        </div>
+                        <div class="glass p-4 rounded-3xl flex flex-col items-center min-w-[120px]">
+                            <span class="text-xs text-white/60 font-medium uppercase mb-1">Wind</span>
+                            <span id="wind" class="text-xl font-bold">-- km/h</span>
+                        </div>
+                        <div class="glass p-4 rounded-3xl flex flex-col items-center min-w-[120px]">
+                            <span class="text-xs text-white/60 font-medium uppercase mb-1">Status</span>
+                            <span id="status" class="text-xl font-bold">Active</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 7-Day Forecast -->
+            <h3 class="text-xl font-bold mb-4 px-4">7-Day Forecast</h3>
+            <div id="forecast-container" class="flex overflow-x-auto pb-4 gap-4 px-4 no-scrollbar">
+                <!-- Forecast items injected by Python -->
+            </div>
+        </div>
+
+        <footer class="mt-auto pt-20 text-white/40 text-sm font-medium">
+            Powered by Python (PyScript) & Open-Meteo
+        </footer>
+    </div>
+
+    <!-- Python Logic -->
+    <script type="py">
+import json
+import asyncio
+from datetime import datetime
+from pyodide.http import pyfetch
+from pyscript import document
+
+async def fetch_weather(event=None):
+    city_input = document.querySelector("#city-input")
+    city_name = city_input.value or "London"
+    
+    # 1. Geocoding API to get Lat/Lon
+    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&language=en&format=json"
+    try:
+        response = await pyfetch(geo_url, method="GET")
+        data = await response.json()
+        
+        if not data.get("results"):
+            print("City not found")
+            return
+            
+        location = data["results"][0]
+        lat, lon = location["latitude"], location["longitude"]
+        
+        # 2. Weather API
+        weather_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto"
+        res = await pyfetch(weather_url, method="GET")
+        w_data = await res.json()
+        
+        # Update UI
+        update_ui(location, w_data)
+        
+    except Exception as e:
+        print(f"Error: {e}")
+
+def get_weather_info(code):
+    codes = {
+        0: ("☀️", "Clear Sky"),
+        1: ("🌤️", "Mainly Clear"), 2: ("⛅", "Partly Cloudy"), 3: ("☁️", "Overcast"),
+        45: ("🌫️", "Fog"), 48: ("🌫️", "Rime Fog"),
+        51: ("🌦️", "Light Drizzle"), 61: ("🌧️", "Slight Rain"),
+        71: ("🌨️", "Slight Snow"), 95: ("⛈️", "Thunderstorm")
+    }
+    return codes.get(code, ("☁️", "Cloudy"))
+
+def update_ui(location, data):
+    current = data["current"]
+    daily = data["daily"]
+    icon, desc = get_weather_info(current["weather_code"])
+    
+    # Update Current
+    document.querySelector("#location-name").innerText = location["name"]
+    document.querySelector("#current-date").innerText = datetime.now().strftime("%A, %d %B")
+    document.querySelector("#temp").innerText = f"{round(current['temperature_2m'])}°"
+    document.querySelector("#weather-icon").innerText = icon
+    document.querySelector("#description").innerText = desc
+    document.querySelector("#humidity").innerText = f"{current['relative_humidity_2m']}%"
+    document.querySelector("#wind").innerText = f"{current['wind_speed_10m']} km/h"
+    
+    # Update Forecast
+    container = document.querySelector("#forecast-container")
+    container.innerHTML = ""
+    
+    for i in range(7):
+        date_str = daily["time"][i]
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        day_name = "Today" if i == 0 else date_obj.strftime("%a")
+        f_icon, _ = get_weather_info(daily["weather_code"][i])
+        
+        item = f"""
+        <div class="flex-shrink-0 flex flex-col items-center p-5 rounded-3xl border border-white/20 glass transition-all hover:scale-105">
+            <span class="text-sm font-medium text-white/80">{day_name}</span>
+            <div class="my-4 text-3xl">{f_icon}</div>
+            <div class="flex flex-col items-center">
+                <span class="text-xl font-bold">{round(daily['temperature_2m_max'][i])}°</span>
+                <span class="text-sm font-medium text-white/50">{round(daily['temperature_2m_min'][i])}°</span>
+            </div>
+        </div>
+        """
+        container.innerHTML += item
+    
+    document.querySelector("#weather-display").style.opacity = "1"
+
+# Bind events
+document.querySelector("#search-btn").onclick = fetch_weather
+document.querySelector("#city-input").onkeypress = lambda e: asyncio.ensure_future(fetch_weather()) if e.key == "Enter" else None
+
+# Initial Load
+asyncio.ensure_future(fetch_weather())
+    </script>
+</body>
+</html>
